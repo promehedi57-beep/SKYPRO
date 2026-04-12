@@ -374,11 +374,21 @@ async def start(message: types.Message, state: FSMContext):
 async def live_stats(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
-    msg = await message.answer("⏳ 🔄 Updating ranges...")
-    await sync_services_from_api()
-    stats = await get_live_stats()
-    await msg.delete()
-    await message.answer(stats, parse_mode="Markdown")
+    
+    # সরাসরি গ্রুপ লিংকে নিয়ে যাওয়ার জন্য ইনলাইন কিবোর্ড
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(
+        text="📊 𝐉𝐎𝐈𝐍 𝐋𝐈𝐕𝐄 𝐑𝐀𝐍𝐆𝐄 𝐆𝐑𝐎𝐔𝐏 📊",
+        url="https://t.me/SMSSKYOTP"
+    ))
+    
+    await message.answer(
+        "📊 *𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬*\n\n"
+        "🔹 *লাইভ রেঞ্জ আপডেট পেতে নিচের বাটনে ক্লিক করে আমাদের গ্রুপে জয়েন করুন!*\n\n"
+        "👇 👇 👇",
+        reply_markup=builder.as_markup(),
+        parse_mode="Markdown"
+    )
 
 @dp.message(F.text == "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹")
 async def get_2_menu(message: types.Message):
