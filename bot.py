@@ -8,6 +8,7 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CopyTextButton
+import re
 
 # ================= CONFIGURATION =================
 TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
@@ -1001,6 +1002,71 @@ async def toggle_withdraw(callback: types.CallbackQuery):
     status_text = "ON" if new_value == "on" else "OFF"
     await callback.answer(f"Withdraw mode turned {status_text}", show_alert=True)
     await callback.message.edit_text("⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳", reply_markup=admin_menu(), parse_mode="Markdown")
+
+# ================= AUTO RANGE DETECTION =================
+# Pattern to detect range formats like: 40771610XXX, 99298XXX, +123456XXXX, etc.
+RANGE_PATTERN = re.compile(r'[\+]?(\d{5,12}[Xx]{2,5})')
+
+def extract_range_from_text(text: str) -> str:
+    """Extract first valid range from text."""
+    match = RANGE_PATTERN.search(text)
+    if match:
+        range_val = match.group(1).upper().replace('X', 'X')
+        # If starts with +, remove it
+        if range_val.startswith('+'):
+            range_val = range_val[1:]
+        return range_val
+    return None
+
+@dp.message()
+async def auto_detect_range(message: types.Message, state: FSMContext):
+    """Catch any message and check if it contains a valid range."""
+    # Skip if user is in any state (already doing something)
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+    
+    # Skip if message is a command
+    if message.text and message.text.startswith('/'):
+        return
+    
+    # Skip if it's a button click from main menu
+    if message.text in ["📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬", "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
+        return
+    
+    text_to_check = message.text or message.caption or ""
+    if not text_to_check:
+        return
+    
+    # Check maintenance mode
+    if await check_maintenance(message.from_user.id, message=message):
+        return
+    
+    # Try to extract range
+    range_val = extract_range_from_text(text_to_check)
+    if not range_val:
+        return  # No range found, ignore message silently
+    
+    # Range found! Now process it
+    await message.answer(f"🔍 Auto-detected range: `{range_val}`\n⏳ Checking availability...", parse_mode="Markdown")
+    
+    # Test if range exists by fetching one number
+    test_number = await fetch_one_number(range_val, attempt=0)
+    
+    if not test_number:
+        await message.answer(f"❌ Range `{range_val}` does not exist or no numbers available.\nPlease check the range and try again.")
+        return
+    
+    # Range is valid, now give numbers
+    # Check if range exists in DB
+    cursor.execute("SELECT id FROM services WHERE range_val=?", (range_val,))
+    existing = cursor.fetchone()
+    
+    if existing:
+        sid = existing[0]
+        await send_numbers_message(message, sid, limit=2, range_val_override=range_val)
+    else:
+        await send_numbers_message(message, service_id=None, limit=2, range_val_override=range_val)
 
 # ================= SHUTDOWN CLEANUP =================
 async def on_shutdown():
