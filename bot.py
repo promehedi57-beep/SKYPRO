@@ -2,6 +2,7 @@ import asyncio
 import sqlite3
 import aiohttp
 from datetime import datetime
+from collections import deque
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
@@ -15,9 +16,15 @@ TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
 API_BASE_URL = "http://2.58.82.137:5000"
 API_KEY = "nxa_99f2f67b13e0e02bca175b1cbc40d57128958702"
 OTP_GROUP_LINK = "https://t.me/+4nMAFt2hYk04YTRl"
+TELEGRAM_GROUP_ID = "-1003860008126"  # আপনার আগের স্ক্রিপ্টের গ্রুপ আইডি
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+# ================= AUTO OTP TRACKING GLOBALS (নতুন) =================
+user_mappings = {}
+processed_ids = deque(maxlen=500)
+OTP_REGEX = re.compile(r'\b\d{4,10}\b')
 
 # ================= DATABASE =================
 db = sqlite3.connect("otp_pro_panel.db", check_same_thread=False)
@@ -145,7 +152,6 @@ def is_withdraw_enabled() -> bool:
     return row and row[0] == 'on'
 
 async def check_maintenance(user_id: int, message: types.Message = None, callback: types.CallbackQuery = None):
-    """If maintenance mode is on and user is not admin, send alert and return True (blocked)."""
     if is_maintenance_mode() and not is_admin(user_id):
         text = "🔧 *Bot is under maintenance.* Please try again later."
         if callback:
@@ -155,6 +161,87 @@ async def check_maintenance(user_id: int, message: types.Message = None, callbac
             await message.answer(text, parse_mode="Markdown")
         return True
     return False
+
+# ================= NEW: AUTO OTP HELPERS =================
+def extract_otp(text: str) -> str | None:
+    match = OTP_REGEX.search(text)
+    return match.group(0) if match else None
+
+def generate_skypro_number(phone: str) -> str:
+    p = str(phone).strip().replace("+", "")
+    if len(p) >= 6:
+        return f"{p[:3]}SKYPRO{p[-3:]}"
+    else:
+        return f"SKYPRO{p}"
+
+async def send_telegram_otp(otp_code: str, phone: str, category: str, target_chat_id):
+    country_code, flag = get_country_from_phone(phone)
+    skypro_number = generate_skypro_number(phone)
+    
+    text = (
+        f"🔐 {flag} **{country_code} | {category}**\n\n"
+        f"`{skypro_number}`\n\n"
+        f"🔑 **OTP:** `{otp_code}`\n\n"
+        f" **POWERED BY [S K Y](https://t.me/ONLYALLSUPPORT)**"
+    )
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text=f" {otp_code}", copy_text=CopyTextButton(text=otp_code)))
+    builder.row(
+        types.InlineKeyboardButton(text="‼️ 𝑷𝑨𝑵𝑬𝑳", url="https://t.me/SKYSMSPRO_BOT"),
+        types.InlineKeyboardButton(text="📞 𝑪𝑯𝑨𝑵𝑵𝑬𝑳", url="https://t.me/SKYOFFICIALCHANNEL1")
+    )
+    
+    try:
+        await bot.send_message(
+            chat_id=target_chat_id,
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=builder.as_markup(),
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        print(f"❌ Failed to send OTP to {target_chat_id}: {e}")
+
+async def fetch_console_logs_api():
+    url = f"{API_BASE_URL}/console/logs?limit=10"
+    headers = {"X-API-Key": API_KEY, "Accept": "application/json"}
+    try:
+        session = await get_session()
+        async with session.get(url, headers=headers, timeout=10) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if data.get("success") and "data" in data:
+                    return data["data"]
+    except Exception as e:
+        pass
+    return []
+
+async def auto_otp_monitor_loop():
+    print("🚀 Background Auto OTP Monitoring Started...")
+    while True:
+        logs = await fetch_console_logs_api()
+        if logs:
+            for log in reversed(logs):
+                msg_id = log.get("id")
+                if msg_id and msg_id not in processed_ids:
+                    sms_text = log.get("sms", "")
+                    phone = log.get("phone", log.get("number", ""))
+                    category = log.get("service") or log.get("app") or log.get("service_name") or "Unknown"
+                    otp = extract_otp(sms_text)
+                    
+                    if otp:
+                        phone_clean = str(phone).strip().replace("+", "")
+                        target_user_id = user_mappings.get(phone_clean)
+                        
+                        if target_user_id:
+                            await send_telegram_otp(otp, phone, category, target_user_id)
+                            del user_mappings[phone_clean]
+                        else:
+                            await send_telegram_otp(otp, phone, category, TELEGRAM_GROUP_ID)
+                            
+                        processed_ids.append(msg_id)
+        await asyncio.sleep(1)
 
 # ================= FSM =================
 class AdminStates(StatesGroup):
@@ -262,7 +349,6 @@ def main_menu(user_id: int):
     return builder.as_markup(resize_keyboard=True)
 
 def get_grouped_services():
-    """Return list of tuples (name, flag, count) grouped by service name."""
     cursor.execute("""
         SELECT name, flag, COUNT(*) as cnt
         FROM services
@@ -293,10 +379,8 @@ def admin_menu():
     builder.button(text="⚙️ Set Min Withdraw", callback_data="set_min_withdraw")
     builder.button(text="📋 Withdraw Requests", callback_data="view_withdraw_requests")
     builder.button(text="📊 Analytics", callback_data="analytics")
-    # Withdraw toggle button
     current_w = "ON" if is_withdraw_enabled() else "OFF"
     builder.button(text=f"💸 𝑾𝑰𝑻𝑯𝑫𝑹𝑨𝑾 [{current_w}]", callback_data="toggle_withdraw")
-    # Maintenance toggle button
     current_m = "ON" if is_maintenance_mode() else "OFF"
     builder.button(text=f"🔧 Maintenance Mode [{current_m}]", callback_data="toggle_maintenance")
     builder.button(text="🔙 Close", callback_data="admin_back")
@@ -375,7 +459,6 @@ async def live_stats(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
     
-    # সরাসরি গ্রুপ লিংকে নিয়ে যাওয়ার জন্য ইনলাইন কিবোর্ড
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(
         text="📊 𝐉𝐎𝐈𝐍 𝐋𝐈𝐕𝐄 𝐑𝐀𝐍𝐆𝐄 𝐆𝐑𝐎𝐔𝐏 📊",
@@ -482,16 +565,19 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
         country_code, flag_from_phone = get_country_from_phone(first_phone)
         flag = flag_from_phone
         country_name = country_map.get(country_code, country_code)
-        range_info = f"{flag} *{country_name}*  `[{range_val}]`"
+        range_info = f"{flag} *{country_name}* `[{range_val}]`"
     else:
         country_name = country_map.get(country_code, country_code)
-        range_info = f"{flag} *{country_name}*  `[{range_val}]`"
+        range_info = f"{flag} *{country_name}* `[{range_val}]`"
     
     text = f"{range_info}\n━━━━━━━━━━━━━━━━━━━━\n⏳ *Waiting for OTP...*"
     
     builder = InlineKeyboardBuilder()
     for idx, (nid, phone) in enumerate(numbers, 1):
         formatted = format_number_with_flag(phone)
+        phone_clean = str(phone).strip().replace("+", "")
+        user_mappings[phone_clean] = callback_or_msg.from_user.id
+        
         builder.row(types.InlineKeyboardButton(
             text=f" {formatted}",
             copy_text=CopyTextButton(text=phone)
@@ -1014,15 +1100,12 @@ async def toggle_withdraw(callback: types.CallbackQuery):
     await callback.message.edit_text("⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳", reply_markup=admin_menu(), parse_mode="Markdown")
 
 # ================= AUTO RANGE DETECTION =================
-# Pattern to detect range formats like: 40771610XXX, 99298XXX, +123456XXXX, etc.
 RANGE_PATTERN = re.compile(r'[\+]?(\d{5,12}[Xx]{2,5})')
 
 def extract_range_from_text(text: str) -> str:
-    """Extract first valid range from text."""
     match = RANGE_PATTERN.search(text)
     if match:
         range_val = match.group(1).upper().replace('X', 'X')
-        # If starts with +, remove it
         if range_val.startswith('+'):
             range_val = range_val[1:]
         return range_val
@@ -1030,17 +1113,11 @@ def extract_range_from_text(text: str) -> str:
 
 @dp.message()
 async def auto_detect_range(message: types.Message, state: FSMContext):
-    """Catch any message and check if it contains a valid range."""
-    # Skip if user is in any state (already doing something)
     current_state = await state.get_state()
     if current_state is not None:
         return
-    
-    # Skip if message is a command
     if message.text and message.text.startswith('/'):
         return
-    
-    # Skip if it's a button click from main menu
     if message.text in ["📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬", "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
         return
     
@@ -1048,27 +1125,20 @@ async def auto_detect_range(message: types.Message, state: FSMContext):
     if not text_to_check:
         return
     
-    # Check maintenance mode
     if await check_maintenance(message.from_user.id, message=message):
         return
     
-    # Try to extract range
     range_val = extract_range_from_text(text_to_check)
     if not range_val:
-        return  # No range found, ignore message silently
+        return
     
-    # Range found! Now process it
     await message.answer(f"🔍 Auto-detected range: `{range_val}`\n⏳ Checking availability...", parse_mode="Markdown")
-    
-    # Test if range exists by fetching one number
     test_number = await fetch_one_number(range_val, attempt=0)
     
     if not test_number:
         await message.answer(f"❌ Range `{range_val}` does not exist or no numbers available.\nPlease check the range and try again.")
         return
     
-    # Range is valid, now give numbers
-    # Check if range exists in DB
     cursor.execute("SELECT id FROM services WHERE range_val=?", (range_val,))
     existing = cursor.fetchone()
     
@@ -1085,6 +1155,12 @@ async def on_shutdown():
         await http_session.close()
 
 dp.shutdown.register(on_shutdown)
+
+# ================= NEW: STARTUP MONITORING =================
+async def on_startup(bot: Bot):
+    asyncio.create_task(auto_otp_monitor_loop())
+
+dp.startup.register(on_startup)
 
 # ================= MAIN =================
 async def main():
