@@ -254,9 +254,11 @@ async def fetch_numbers_by_range(range_val: str, limit: int = 2):
 # ================= KEYBOARDS =================
 def main_menu(user_id: int):
     builder = ReplyKeyboardBuilder()
-    builder.row(types.KeyboardButton(text="📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬"))
-    builder.row(types.KeyboardButton(text="📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹"))
-    builder.row(types.KeyboardButton(text="💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬"))
+    builder.row(
+        types.KeyboardButton(text="🟢 📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹"),
+        types.KeyboardButton(text="🔴 📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬")
+    )
+    builder.row(types.KeyboardButton(text="🔵 💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬"))
     if is_admin(user_id):
         builder.row(types.KeyboardButton(text="⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"))
     return builder.as_markup(resize_keyboard=True)
@@ -370,7 +372,7 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown" 
     )
 
-@dp.message(F.text == "📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬")
+@dp.message(F.text == "🔴 📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬")
 async def live_stats(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
@@ -390,7 +392,7 @@ async def live_stats(message: types.Message):
         parse_mode="Markdown"
     )
 
-@dp.message(F.text == "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹")
+@dp.message(F.text == "🟢 📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹")
 async def get_2_menu(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
@@ -482,10 +484,10 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
         country_code, flag_from_phone = get_country_from_phone(first_phone)
         flag = flag_from_phone
         country_name = country_map.get(country_code, country_code)
-        range_info = f"{flag} *{country_name}*  `[{range_val}]`"
+        range_info = f"{flag} *{country_name}* `[{range_val}]`"
     else:
         country_name = country_map.get(country_code, country_code)
-        range_info = f"{flag} *{country_name}*  `[{range_val}]`"
+        range_info = f"{flag} *{country_name}* `[{range_val}]`"
     
     text = f"{range_info}\n━━━━━━━━━━━━━━━━━━━━\n⏳ *Waiting for OTP...*"
     
@@ -498,10 +500,14 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
         ))
     
     callback_data_change = f"change_{service_id}_{limit}" if not range_val_override else f"change_custom_{range_val}_{limit}"
+    
+    # স্ক্রিনশটের মতো কালারফুল ইনলাইন বাটন
     builder.row(
-        types.InlineKeyboardButton(text="🔂 𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
-        types.InlineKeyboardButton(text="​📩 𝑮𝑬𝑻 𝑶𝑻𝑷", url=OTP_GROUP_LINK),
-        types.InlineKeyboardButton(text="❌ 𝑪𝑯𝑨𝑵𝑮𝑬", callback_data="main_menu")
+        types.InlineKeyboardButton(text="🔴 𝒆 𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
+        types.InlineKeyboardButton(text="🔵 𝑮𝑬𝑻 𝑶𝑻𝑷 ↗️", url=OTP_GROUP_LINK)
+    )
+    builder.row(
+        types.InlineKeyboardButton(text="❌ 𝑴𝑬𝑵𝑼", callback_data="main_menu")
     )
     
     await target_message.delete()
@@ -510,7 +516,7 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    if await check_maintenance(callback.from_user.id, callback=callback):
+    if await check_maintenance(callback.fromuser.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
     await send_numbers_message(callback, service_id, limit=2)
@@ -579,7 +585,7 @@ async def cancel_all(callback: types.CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
 
-@dp.message(F.text == "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬")
+@dp.message(F.text == "🔵 💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬")
 async def show_balance(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
@@ -1041,7 +1047,7 @@ async def auto_detect_range(message: types.Message, state: FSMContext):
         return
     
     # Skip if it's a button click from main menu
-    if message.text in ["📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬", "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
+    if message.text in ["🔴 📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬", "🟢 📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "🔵 💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
         return
     
     text_to_check = message.text or message.caption or ""
