@@ -360,7 +360,7 @@ async def start(message: types.Message, state: FSMContext):
         "**𝑺𝑲𝒀𝑺𝑴𝑺𝑷𝑹𝑶 𝑩𝑶𝑻**-এ আপনাকে স্বাগতম! 🚀\n\n"
         "এই বটটির মাধ্যমে আপনি খুব সহজেই যেকোনো সার্ভিসের (যেমন: Telegram, WhatsApp, Facebook) ভেরিফিকেশনের জন্য ভার্চুয়াল নাম্বার এবং OTP পেতে পারেন।\n\n"
         "👇 **কীভাবে ব্যবহার করবেন?**\n"
-        "📊 **​📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
+        "📊 **📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
         "📞 **𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹:** এখান থেকে আপনি আপনার কাঙ্ক্ষিত সার্ভিসের নাম্বার নিতে পারবেন।\n"
         "💰 **𝑩𝑨𝑳𝑨𝑵𝑪𝑬:** আপনার ওয়ালেট ব্যালেন্স চেক করতে এবং উইথড্র রিকোয়েস্ট দিতে পারবেন।\n\n"
         "💡 _যেকোনো সাহায্যের জন্য আমাদের সাপোর্ট গ্রুপে যুক্ত থাকুন।_"
@@ -516,7 +516,7 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    if await check_maintenance(callback.fromuser.id, callback=callback):
+    if await check_maintenance(callback.from_user.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
     await send_numbers_message(callback, service_id, limit=2)
@@ -589,10 +589,13 @@ async def cancel_all(callback: types.CallbackQuery, state: FSMContext):
 async def show_balance(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
+    
     bal_row = cursor.execute("SELECT balance FROM users WHERE id=?", (message.from_user.id,)).fetchone()
     bal = bal_row[0] if bal_row else 0.0
+    
     min_w_row = cursor.execute("SELECT value FROM config WHERE key='min_withdraw'").fetchone()
     min_w = min_w_row[0] if min_w_row else "100"
+    
     earn_row = cursor.execute("SELECT value FROM config WHERE key='earning_per_otp'").fetchone()
     earn = earn_row[0] if earn_row else "10"
     
@@ -610,11 +613,19 @@ async def withdraw_start(callback: types.CallbackQuery, state: FSMContext):
     if await check_maintenance(callback.from_user.id, callback=callback):
         return
     uid = callback.from_user.id
-    bal = cursor.execute("SELECT balance FROM users WHERE id=?", (uid,)).fetchone()[0]
+    
+    bal_row = cursor.execute("SELECT balance FROM users WHERE id=?", (uid,)).fetchone()
+    if not bal_row:
+        await callback.answer("❌ Error: User data not found. Please type /start first.", show_alert=True)
+        return
+    
+    bal = bal_row[0]
     min_w = float(cursor.execute("SELECT value FROM config WHERE key='min_withdraw'").fetchone()[0])
+    
     if bal < min_w:
         await callback.answer(f"Minimum withdraw is {min_w} TK. You have {bal} TK.", show_alert=True)
         return
+        
     await callback.message.answer("✏️ Enter your bKash number (01XXXXXXXXX):")
     await state.set_state(WithdrawState.waiting_number)
     await state.update_data(user_id=uid, balance=bal)
