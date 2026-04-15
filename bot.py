@@ -255,10 +255,10 @@ async def fetch_numbers_by_range(range_val: str, limit: int = 2):
 def main_menu(user_id: int):
     builder = ReplyKeyboardBuilder()
     builder.row(
-        types.KeyboardButton(text="🟢 📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹"),
-        types.KeyboardButton(text="🔴 📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬")
+        types.KeyboardButton(text="📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹"),
+        types.KeyboardButton(text="📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮")
     )
-    builder.row(types.KeyboardButton(text="🔵 💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬"))
+    builder.row(types.KeyboardButton(text="💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬"))
     if is_admin(user_id):
         builder.row(types.KeyboardButton(text="⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"))
     return builder.as_markup(resize_keyboard=True)
@@ -331,7 +331,7 @@ async def get_live_stats():
     if total == 0:
         return f"📊 *Live Stats*\n\n👥 *Total Users:* {total_users}\n📉 No successful OTPs yet."
         
-    text = f"📊 *Live Service Range & Value*\n👥 *Total Users:* {total_users}\n\n"
+    text = f"📊 *Live Service Rang & Value*\n👥 *Total Users:* {total_users}\n\n"
     for sid, name, flag, rval, cnt in data:
         percent = (cnt / total) * 100 if total > 0 else 0
         bar = "█" * int(percent // 5) + "░" * (20 - int(percent // 5))
@@ -360,7 +360,7 @@ async def start(message: types.Message, state: FSMContext):
         "**𝑺𝑲𝒀𝑺𝑴𝑺𝑷𝑹𝑶 𝑩𝑶𝑻**-এ আপনাকে স্বাগতম! 🚀\n\n"
         "এই বটটির মাধ্যমে আপনি খুব সহজেই যেকোনো সার্ভিসের (যেমন: Telegram, WhatsApp, Facebook) ভেরিফিকেশনের জন্য ভার্চুয়াল নাম্বার এবং OTP পেতে পারেন।\n\n"
         "👇 **কীভাবে ব্যবহার করবেন?**\n"
-        "📊 **📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
+        "📊 **📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
         "📞 **𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹:** এখান থেকে আপনি আপনার কাঙ্ক্ষিত সার্ভিসের নাম্বার নিতে পারবেন।\n"
         "💰 **𝑩𝑨𝑳𝑨𝑵𝑪𝑬:** আপনার ওয়ালেট ব্যালেন্স চেক করতে এবং উইথড্র রিকোয়েস্ট দিতে পারবেন।\n\n"
         "💡 _যেকোনো সাহায্যের জন্য আমাদের সাপোর্ট গ্রুপে যুক্ত থাকুন।_"
@@ -372,7 +372,7 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown" 
     )
 
-@dp.message(F.text == "🔴 📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬")
+@dp.message(F.text == "📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮")
 async def live_stats(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
@@ -380,19 +380,19 @@ async def live_stats(message: types.Message):
     # সরাসরি গ্রুপ লিংকে নিয়ে যাওয়ার জন্য ইনলাইন কিবোর্ড
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(
-        text="📊 𝐉𝐎𝐈𝐍 𝐋𝐈𝐕𝐄 𝐑𝐀𝐍𝐆𝐄 𝐆𝐑𝐎𝐔𝐏 📊",
+        text="📊 𝐉𝐎𝐈𝐍 𝐋𝐈𝐕𝐄 𝐑𝐀𝐍𝐆 𝐆𝐑𝐎𝐔𝐏 📊",
         url="https://t.me/SMSSKYOTP"
     ))
     
     await message.answer(
-        "📊 *𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬*\n\n"
+        "📊 *𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮*\n\n"
         "🔹 *লাইভ রেঞ্জ আপডেট পেতে নিচের বাটনে ক্লিক করে আমাদের গ্রুপে জয়েন করুন!*\n\n"
         "👇 👇 👇",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown"
     )
 
-@dp.message(F.text == "🟢 📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹")
+@dp.message(F.text == "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹")
 async def get_2_menu(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
@@ -503,11 +503,11 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
     
     # স্ক্রিনশটের মতো কালারফুল ইনলাইন বাটন
     builder.row(
-        types.InlineKeyboardButton(text="🔴 𝒆 𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
-        types.InlineKeyboardButton(text="🔵 𝑮𝑬𝑻 𝑶𝑻𝑷 ↗️", url=OTP_GROUP_LINK)
+        types.InlineKeyboardButton(text="♻️𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
+        types.InlineKeyboardButton(text="💬𝑮𝑬𝑻 𝑶𝑻𝑷 ↗️", url=OTP_GROUP_LINK)
     )
     builder.row(
-        types.InlineKeyboardButton(text="❌ 𝑴𝑬𝑵𝑼", callback_data="main_menu")
+        types.InlineKeyboardButton(text="🔙 𝑴𝑬𝑵𝑼", callback_data="main_menu")
     )
     
     await target_message.delete()
@@ -580,12 +580,12 @@ async def cancel_all(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
     await callback.message.answer(
-        "🔽 *Main Menu* 🔽",
+        "✅ *Main Menu* ✅",
         reply_markup=main_menu(callback.from_user.id),
         parse_mode="Markdown"
     )
 
-@dp.message(F.text == "🔵 💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬")
+@dp.message(F.text == "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬")
 async def show_balance(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
@@ -1058,7 +1058,7 @@ async def auto_detect_range(message: types.Message, state: FSMContext):
         return
     
     # Skip if it's a button click from main menu
-    if message.text in ["🔴 📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮𝑬", "🟢 📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "🔵 💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
+    if message.text in ["📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮", "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
         return
     
     text_to_check = message.text or message.caption or ""
