@@ -405,7 +405,7 @@ def admin_menu():
     
     current_m = "ON" if is_maintenance_mode() else "OFF"
     builder.button(text=f"🔧 Maintenance Mode [{current_m}]", callback_data="toggle_maintenance")
-    builder.button(text="🔙 Close", callback_data="admin_back")
+    builder.button(text="🔙 Close", callback_data="close_admin_panel")
     
     builder.adjust(2, 2, 2, 2, 2, 2, 2)
     return builder.as_markup()
@@ -630,7 +630,7 @@ async def service_selected(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "custom_range")
 async def custom_range_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if await check_maintenance(callback.fromuser.id, callback=callback):
+    if await check_maintenance(callback.from_user.id, callback=callback):
         return
     await callback.message.edit_text("✏️ Please send the range value (e.g., `99298XXX`):")
     await state.set_state(CustomRangeState.waiting_range_value)
@@ -1160,6 +1160,12 @@ async def admin_back(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id): return
     await callback.answer()
     await callback.message.edit_text("⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳", reply_markup=admin_menu(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == "close_admin_panel")
+async def close_admin_panel(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id): return
+    await callback.answer()
+    await callback.message.delete()
 
 @dp.callback_query(F.data == "toggle_maintenance")
 async def toggle_maintenance(callback: types.CallbackQuery):
