@@ -1,7 +1,7 @@
 import asyncio
 import sqlite3
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
@@ -47,6 +47,12 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS used_numbers (
     PRIMARY KEY (user_id, number_id)
 )""")
 cursor.execute("CREATE TABLE IF NOT EXISTS admins (user_id TEXT PRIMARY KEY)")
+# Top 10 লিডারবোর্ডের জন্য নতুন টেবিল
+cursor.execute("""CREATE TABLE IF NOT EXISTS otp_success_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, 
+    user_id INTEGER, 
+    timestamp TEXT
+)""")
 cursor.execute("INSERT OR IGNORE INTO admins VALUES ('6820798198')")
 cursor.execute("INSERT OR IGNORE INTO admins VALUES ('7689218221')")
 db.commit()
@@ -174,7 +180,7 @@ class WithdrawState(StatesGroup):
 class CustomRangeState(StatesGroup):
     waiting_range_value = State()
 
-# ================= API =================
+# ================= API & OTP POLLING =================
 http_session = None
 
 async def get_session():
@@ -182,6 +188,89 @@ async def get_session():
     if http_session is None:
         http_session = aiohttp.ClientSession()
     return http_session
+
+async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
+    """Background task to continuously check for OTP and auto-deliver to inbox."""
+    session = await get_session()
+    end_time = datetime.now().timestamp() + duration_sec
+    seen_ids = set()
+    url = f"{API_BASE_URL}/api/v1/console/logs?limit=30"
+    headers = {"X-API-Key": API_KEY, "Accept": "application/json"}
+    
+    active_phones = list(phones)
+    
+    while datetime.now().timestamp() < end_time and active_phones:
+        try:
+            async with session.get(url, headers=headers, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    logs = data.get("data", []) if isinstance(data, dict) else data
+                    if not isinstance(logs, list):
+                        logs = []
+                    
+                    for log in logs:
+                        msg_id = log.get("id")
+                        if msg_id in seen_ids:
+                            continue
+                            
+                        phone = str(log.get("phone", log.get("number", ""))).replace("+", "")
+                        
+                        for p in active_phones[:]:
+                            p_clean = str(p).replace("+", "")
+                            if p_clean and (p_clean in phone or phone in p_clean):
+                                seen_ids.add(msg_id)
+                                sms = log.get("sms", "")
+                                
+                                # সার্ভিস নাম ঠিক করা (না পেলে FB)
+                                service = log.get("service") or log.get("app") or log.get("service_name") or "FB"
+                                service = str(service).upper()
+                                if service == "FACEBOOK":
+                                    service = "FB"
+                                elif not service:
+                                    service = "FB"
+                                    
+                                # অ্যাডমিন প্যানেল থেকে রেট নেওয়া
+                                cursor.execute("SELECT value FROM config WHERE key='earning_per_otp'")
+                                rate_row = cursor.fetchone()
+                                rate_val = rate_row[0] if rate_row else "0.00"
+                                
+                                # ইউজারের ব্যালেন্সে টাকা যুক্ত করা এবং টপ ১০ লিডারবোর্ডের জন্য লগ সেভ করা
+                                try:
+                                    cursor.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (float(rate_val), chat_id))
+                                    # সফল OTP লগ এন্ট্রি (1 মাসের হিসেবের জন্য)
+                                    cursor.execute("INSERT INTO otp_success_logs (user_id, timestamp) VALUES (?, ?)", (chat_id, datetime.now().isoformat()))
+                                    db.commit()
+                                except Exception as e:
+                                    pass
+
+                                # দেশের শর্ট ফর্ম এবং পতাকা বের করা
+                                country_code, flag = get_country_from_phone(p)
+                                
+                                # OTP খোঁজা
+                                match = re.search(r'\b\d{4,10}\b', sms)
+                                otp = match.group(0) if match else "Found in text"
+                                
+                                # বক্স ডিজাইন (নতুন ফরম্যাট - শর্ট ফর্ম সহ)
+                                content = f"{flag} {country_code} ➡️ {service} ➡️ ৳{rate_val}"
+                                text = (
+                                    f"```\n"
+                                    f"╔═════════════════════════════════╗\n"
+                                    f"║ {content.center(31)} ║\n"
+                                    f"╚═════════════════════════════════╝\n"
+                                    f"```"
+                                )
+                                
+                                # কপি করার ইনলাইন বাটন
+                                builder = InlineKeyboardBuilder()
+                                builder.row(types.InlineKeyboardButton(text=f"{flag} {p}", copy_text=CopyTextButton(text=p)))
+                                builder.row(types.InlineKeyboardButton(text=f"🔑 {otp}", copy_text=CopyTextButton(text=otp)))
+                                
+                                await bot.send_message(chat_id, text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+                                active_phones.remove(p)
+                                break
+        except Exception as e:
+            pass
+        await asyncio.sleep(5)
 
 async def sync_services_from_api():
     url = f"{API_BASE_URL}/app/console"
@@ -295,14 +384,18 @@ def admin_menu():
     builder.button(text="⚙️ Set Min Withdraw", callback_data="set_min_withdraw")
     builder.button(text="📋 Withdraw Requests", callback_data="view_withdraw_requests")
     builder.button(text="📊 Analytics", callback_data="analytics")
-    # Withdraw toggle button
+    builder.button(text="👥 Total Users", callback_data="total_users")
+    builder.button(text="🏆 Top 10 Users", callback_data="top_10_users")
+    
     current_w = "ON" if is_withdraw_enabled() else "OFF"
     builder.button(text=f"💸 𝑾𝑰𝑻𝑯𝑫𝑹𝑨𝑾 [{current_w}]", callback_data="toggle_withdraw")
-    # Maintenance toggle button
+    
     current_m = "ON" if is_maintenance_mode() else "OFF"
     builder.button(text=f"🔧 Maintenance Mode [{current_m}]", callback_data="toggle_maintenance")
     builder.button(text="🔙 Close", callback_data="admin_back")
-    builder.adjust(2, 2, 2, 2, 2, 1, 1)
+    
+    # বোতামগুলো সুন্দরভাবে সাজানোর জন্য adjust
+    builder.adjust(2, 2, 2, 2, 2, 2, 2)
     return builder.as_markup()
 
 def admin_management_menu():
@@ -360,7 +453,7 @@ async def start(message: types.Message, state: FSMContext):
         "**𝑺𝑲𝒀𝑺𝑴𝑺𝑷𝑹𝑶 𝑩𝑶𝑻**-এ আপনাকে স্বাগতম! 🚀\n\n"
         "এই বটটির মাধ্যমে আপনি খুব সহজেই যেকোনো সার্ভিসের (যেমন: Telegram, WhatsApp, Facebook) ভেরিফিকেশনের জন্য ভার্চুয়াল নাম্বার এবং OTP পেতে পারেন।\n\n"
         "👇 **কীভাবে ব্যবহার করবেন?**\n"
-        "📊 **📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
+        "📊 **𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
         "📞 **𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹:** এখান থেকে আপনি আপনার কাঙ্ক্ষিত সার্ভিসের নাম্বার নিতে পারবেন।\n"
         "💰 **𝑩𝑨𝑳𝑨𝑵𝑪𝑬:** আপনার ওয়ালেট ব্যালেন্স চেক করতে এবং উইথড্র রিকোয়েস্ট দিতে পারবেন।\n\n"
         "💡 _যেকোনো সাহায্যের জন্য আমাদের সাপোর্ট গ্রুপে যুক্ত থাকুন।_"
@@ -377,7 +470,6 @@ async def live_stats(message: types.Message):
     if await check_maintenance(message.from_user.id, message=message):
         return
     
-    # সরাসরি গ্রুপ লিংকে নিয়ে যাওয়ার জন্য ইনলাইন কিবোর্ড
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(
         text="📊 𝐉𝐎𝐈𝐍 𝐋𝐈𝐕𝐄 𝐑𝐀𝐍𝐆 𝐆𝐑𝐎𝐔𝐏 📊",
@@ -501,10 +593,9 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
     
     callback_data_change = f"change_{service_id}_{limit}" if not range_val_override else f"change_custom_{range_val}_{limit}"
     
-    # স্ক্রিনশটের মতো কালারফুল ইনলাইন বাটন
     builder.row(
         types.InlineKeyboardButton(text="♻️𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
-        types.InlineKeyboardButton(text="💬𝑮𝑬𝑻 𝑶𝑻𝑷 ↗️", url=OTP_GROUP_LINK)
+        types.InlineKeyboardButton(text="💬𝑮𝑬𝑻 𝑶𝑻𝑷", url=OTP_GROUP_LINK)
     )
     builder.row(
         types.InlineKeyboardButton(text="🔙 𝑴𝑬𝑵𝑼", callback_data="main_menu")
@@ -512,10 +603,16 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
     
     await target_message.delete()
     sent = await target_message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    
+    # Start background polling for auto OTP delivery
+    phones_list = [p[1] for p in numbers]
+    asyncio.create_task(poll_for_otp(sent.chat.id, phones_list, duration_sec=300))
+    
     return sent
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
+    # FIXED: callback.fromuser.id -> callback.from_user.id
     if await check_maintenance(callback.from_user.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
@@ -705,6 +802,58 @@ async def analytics_cb(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
     await callback.message.edit_text(stats, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == "total_users")
+async def show_total_users(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    cursor.execute("SELECT COUNT(id) FROM users")
+    count = cursor.fetchone()[0]
+    await callback.answer(f"👥 Total Users in Bot: {count}", show_alert=True)
+
+# Top 10 Users Handler
+@dp.callback_query(F.data == "top_10_users")
+async def show_top_10_users(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    
+    # 30 দিনের পুরোনো লগ অটো ডিলিট করে দেওয়া (যাতে ডাটাবেস হাল্কা থাকে)
+    thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
+    try:
+        cursor.execute("DELETE FROM otp_success_logs WHERE timestamp < ?", (thirty_days_ago,))
+        db.commit()
+    except:
+        pass
+        
+    cursor.execute("""
+        SELECT u.fullname, u.username, COUNT(o.id) as otp_count
+        FROM otp_success_logs o
+        JOIN users u ON o.user_id = u.id
+        WHERE o.timestamp >= ?
+        GROUP BY o.user_id
+        ORDER BY otp_count DESC
+        LIMIT 10
+    """, (thirty_days_ago,))
+    
+    rows = cursor.fetchall()
+    
+    if not rows:
+        text = "🏆 *Top 10 Users (Last 30 Days)*\n\nকোনো ইউজারের সফল OTP হিস্ট্রি পাওয়া যায়নি।"
+    else:
+        text = "🏆 *Top 10 Users (Last 30 Days)*\n\n"
+        medals = ["🥇", "🥈", "🥉"]
+        for idx, row in enumerate(rows):
+            fullname = row[0] or "Unknown"
+            username = f"(@{row[1]})" if row[1] else ""
+            count = row[2]
+            rank = medals[idx] if idx < 3 else f"`{idx+1}.`"
+            text += f"{rank} {fullname} {username} - `{count} OTP`\n"
+            
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
+    
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.answer()
 
 @dp.callback_query(F.data == "manage_services")
 async def manage_services(callback: types.CallbackQuery):
@@ -1039,7 +1188,6 @@ def extract_range_from_text(text: str) -> str:
     match = RANGE_PATTERN.search(text)
     if match:
         range_val = match.group(1).upper().replace('X', 'X')
-        # If starts with +, remove it
         if range_val.startswith('+'):
             range_val = range_val[1:]
         return range_val
@@ -1048,16 +1196,13 @@ def extract_range_from_text(text: str) -> str:
 @dp.message()
 async def auto_detect_range(message: types.Message, state: FSMContext):
     """Catch any message and check if it contains a valid range."""
-    # Skip if user is in any state (already doing something)
     current_state = await state.get_state()
     if current_state is not None:
         return
     
-    # Skip if message is a command
     if message.text and message.text.startswith('/'):
         return
     
-    # Skip if it's a button click from main menu
     if message.text in ["📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮", "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹", "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬", "⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳"]:
         return
     
@@ -1065,27 +1210,21 @@ async def auto_detect_range(message: types.Message, state: FSMContext):
     if not text_to_check:
         return
     
-    # Check maintenance mode
     if await check_maintenance(message.from_user.id, message=message):
         return
     
-    # Try to extract range
     range_val = extract_range_from_text(text_to_check)
     if not range_val:
-        return  # No range found, ignore message silently
+        return
     
-    # Range found! Now process it
     await message.answer(f"🔍 Auto-detected range: `{range_val}`\n⏳ Checking availability...", parse_mode="Markdown")
     
-    # Test if range exists by fetching one number
     test_number = await fetch_one_number(range_val, attempt=0)
     
     if not test_number:
         await message.answer(f"❌ Range `{range_val}` does not exist or no numbers available.\nPlease check the range and try again.")
         return
     
-    # Range is valid, now give numbers
-    # Check if range exists in DB
     cursor.execute("SELECT id FROM services WHERE range_val=?", (range_val,))
     existing = cursor.fetchone()
     
