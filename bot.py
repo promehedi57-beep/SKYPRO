@@ -179,9 +179,12 @@ async def is_subscribed(user_id: int) -> bool:
     for chat_id in channels_to_check:
         try:
             member = await bot.get_chat_member(chat_id, user_id)
-            if member.status in ["left", "kicked", "banned"]:
+            # More robust check for aiogram 3 Enums
+            status = member.status.value if hasattr(member.status, 'value') else str(member.status)
+            if status in ["left", "kicked", "banned"]:
                 return False
         except Exception as e:
+            # If the bot is not admin or something fails, we catch the error gracefully
             print(f"Force Join Check Error for {chat_id}: {e}")
             return False
             
