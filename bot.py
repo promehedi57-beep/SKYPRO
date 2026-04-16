@@ -1,4 +1,4 @@
-import asyncio
+Import asyncio
 import sqlite3
 import aiohttp
 from datetime import datetime, timedelta
@@ -224,8 +224,18 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
                                 # সার্ভিস নাম ঠিক করা (না পেলে FB)
                                 service = log.get("service") or log.get("app") or log.get("service_name") or "FB"
                                 service = str(service).upper()
+                                
+                                # শর্ট ফর্ম কনভার্ট করা
                                 if service == "FACEBOOK":
                                     service = "FB"
+                                elif service == "WHATSAPP":
+                                    service = "WS" 
+                                elif service == "TELEGRAM":
+                                    service = "TG"
+                                elif service == "INSTAGRAM":
+                                    service = "IG"
+                                elif service == "TWITTER" or service == "X":
+                                    service = "TW"
                                 elif not service:
                                     service = "FB"
                                     
@@ -250,20 +260,23 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
                                 match = re.search(r'\b\d{4,10}\b', sms)
                                 otp = match.group(0) if match else "Found in text"
                                 
-                                # বক্স ডিজাইন (নতুন ফরম্যাট - শর্ট ফর্ম সহ)
-                                content = f"{flag} {country_code} ➡️ {service} ➡️ ৳{rate_val}"
+                                # বক্স ডিজাইন (ডাইনামিক সাইজ - লেখা যতটুকু, বক্স ততটুকু)
+                                content = f"{flag} {country_code}➔{service}➔৳{rate_val}"
+                                
+                                border_len = len(content) + 2 
+                                top_border = "╔" + "═" * border_len + "╗"
+                                bottom_border = "╚" + "═" * border_len + "╝"
+                                
                                 text = (
-                                    f"```\n"
-                                    f"╔═════════════════════════════════╗\n"
-                                    f"║ {content.center(31)} ║\n"
-                                    f"╚═════════════════════════════════╝\n"
-                                    f"```"
+                                    f"{top_border}\n"
+                                    f"║ {content} ║\n"
+                                    f"{bottom_border}"
                                 )
                                 
                                 # কপি করার ইনলাইন বাটন
                                 builder = InlineKeyboardBuilder()
                                 builder.row(types.InlineKeyboardButton(text=f"{flag} {p}", copy_text=CopyTextButton(text=p)))
-                                builder.row(types.InlineKeyboardButton(text=f"🔑 {otp}", copy_text=CopyTextButton(text=otp)))
+                                builder.row(types.InlineKeyboardButton(text=f" {otp}", copy_text=CopyTextButton(text=otp)))
                                 
                                 await bot.send_message(chat_id, text, reply_markup=builder.as_markup(), parse_mode="Markdown")
                                 active_phones.remove(p)
@@ -394,7 +407,6 @@ def admin_menu():
     builder.button(text=f"🔧 Maintenance Mode [{current_m}]", callback_data="toggle_maintenance")
     builder.button(text="🔙 Close", callback_data="admin_back")
     
-    # বোতামগুলো সুন্দরভাবে সাজানোর জন্য adjust
     builder.adjust(2, 2, 2, 2, 2, 2, 2)
     return builder.as_markup()
 
@@ -604,7 +616,6 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
     await target_message.delete()
     sent = await target_message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     
-    # Start background polling for auto OTP delivery
     phones_list = [p[1] for p in numbers]
     asyncio.create_task(poll_for_otp(sent.chat.id, phones_list, duration_sec=300))
     
@@ -612,7 +623,6 @@ async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2,
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    # FIXED: callback.fromuser.id -> callback.from_user.id
     if await check_maintenance(callback.from_user.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
@@ -620,7 +630,7 @@ async def service_selected(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "custom_range")
 async def custom_range_prompt(callback: types.CallbackQuery, state: FSMContext):
-    if await check_maintenance(callback.from_user.id, callback=callback):
+    if await check_maintenance(callback.fromuser.id, callback=callback):
         return
     await callback.message.edit_text("✏️ Please send the range value (e.g., `99298XXX`):")
     await state.set_state(CustomRangeState.waiting_range_value)
@@ -811,13 +821,11 @@ async def show_total_users(callback: types.CallbackQuery):
     count = cursor.fetchone()[0]
     await callback.answer(f"👥 Total Users in Bot: {count}", show_alert=True)
 
-# Top 10 Users Handler
 @dp.callback_query(F.data == "top_10_users")
 async def show_top_10_users(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return
     
-    # 30 দিনের পুরোনো লগ অটো ডিলিট করে দেওয়া (যাতে ডাটাবেস হাল্কা থাকে)
     thirty_days_ago = (datetime.now() - timedelta(days=30)).isoformat()
     try:
         cursor.execute("DELETE FROM otp_success_logs WHERE timestamp < ?", (thirty_days_ago,))
@@ -1180,11 +1188,9 @@ async def toggle_withdraw(callback: types.CallbackQuery):
     await callback.message.edit_text("⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳", reply_markup=admin_menu(), parse_mode="Markdown")
 
 # ================= AUTO RANGE DETECTION =================
-# Pattern to detect range formats like: 40771610XXX, 99298XXX, +123456XXXX, etc.
 RANGE_PATTERN = re.compile(r'[\+]?(\d{5,12}[Xx]{2,5})')
 
 def extract_range_from_text(text: str) -> str:
-    """Extract first valid range from text."""
     match = RANGE_PATTERN.search(text)
     if match:
         range_val = match.group(1).upper().replace('X', 'X')
@@ -1195,7 +1201,6 @@ def extract_range_from_text(text: str) -> str:
 
 @dp.message()
 async def auto_detect_range(message: types.Message, state: FSMContext):
-    """Catch any message and check if it contains a valid range."""
     current_state = await state.get_state()
     if current_state is not None:
         return
