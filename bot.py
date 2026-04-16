@@ -14,14 +14,7 @@ import re
 TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
 API_BASE_URL = "http://2.58.82.137:5000"
 API_KEY = "nxa_99f2f67b13e0e02bca175b1cbc40d57128958702"
-OTP_GROUP_LINK = "https://t.me/SKYPROOTP"
-
-# --- Force Join Configuration ---
-RANGE_GROUP_LINK = "https://t.me/SMSSKYOTP"
-YT_LINK_1 = "https://youtube.com/@zerofbzone?si=UxNKNCbnSHDUisvB"
-YT_LINK_2 = "https://youtube.com/@skymethod?si=xtM0ovT8Rj2QNYOU"
-OTP_GROUP_CHAT_ID = "@SKYPROOTP"
-RANGE_GROUP_CHAT_ID = "@SMSSKYOTP"
+OTP_GROUP_LINK = "https://t.me/+4nMAFt2hYk04YTRl"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -168,53 +161,6 @@ async def check_maintenance(user_id: int, message: types.Message = None, callbac
             await message.answer(text, parse_mode="Markdown")
         return True
     return False
-
-# --- FORCE JOIN HELPERS ---
-async def is_subscribed(user_id: int) -> bool:
-    """Check if the user has joined the required Telegram groups."""
-    if is_admin(user_id):
-        return True
-    
-    channels_to_check = [OTP_GROUP_CHAT_ID, RANGE_GROUP_CHAT_ID]
-    for chat_id in channels_to_check:
-        try:
-            member = await bot.get_chat_member(chat_id, user_id)
-            # More robust check for aiogram 3 Enums
-            status = member.status.value if hasattr(member.status, 'value') else str(member.status)
-            if status in ["left", "kicked", "banned"]:
-                return False
-        except Exception as e:
-            # If the bot is not admin or something fails, we catch the error gracefully
-            print(f"Force Join Check Error for {chat_id}: {e}")
-            return False
-            
-    return True
-
-def force_join_keyboard():
-    """Beautiful Inline Keyboard for Forced Join"""
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="▶️ 𝐙𝐄𝐑𝐎 𝐅𝐁 𝐙𝐎𝐍𝐄", url=YT_LINK_1))
-    builder.row(types.InlineKeyboardButton(text="▶️ 𝐒𝐊𝐘 𝐌𝐄𝐓𝐇𝐎𝐃", url=YT_LINK_2))
-    builder.row(types.InlineKeyboardButton(text="💬 𝐎𝐓𝐏 𝐆𝐑𝐎𝐔𝐏", url=OTP_GROUP_LINK))
-    builder.row(types.InlineKeyboardButton(text="📊 𝐑𝐀𝐍𝐆𝐄 𝐆𝐑𝐎𝐔𝐏", url=RANGE_GROUP_LINK))
-    builder.row(types.InlineKeyboardButton(text="✅ 𝐉𝐎𝐈𝐍𝐄𝐃 (𝐂𝐇𝐄𝐂𝐊)", callback_data="verify_join"))
-    return builder.as_markup()
-
-async def send_force_join_msg(target):
-    """Sends the visually attractive force join message."""
-    text = (
-        "🛑 **অ্যাক্সেস সংরক্ষিত!**\n\n"
-        "বটটি ব্যবহার করতে আপনাকে অবশ্যই আমাদের **ইউটিউব চ্যানেল** এবং **টেলিগ্রাম গ্রুপগুলোতে** জয়েন করতে হবে।\n\n"
-        "👇 **নির্দেশনা:**\n"
-        "১. নিচের বাটনগুলোতে ক্লিক করে চ্যানেল ও গ্রুপে যুক্ত হোন।\n"
-        "২. এরপর **'✅ 𝐉𝐎𝐈𝐍𝐄𝐃 (𝐂𝐇𝐄𝐂𝐊)'** বাটনে ক্লিক করুন।\n"
-    )
-    markup = force_join_keyboard()
-    
-    if isinstance(target, types.Message):
-        await target.answer(text, reply_markup=markup, parse_mode="Markdown")
-    elif isinstance(target, types.CallbackQuery):
-        await target.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
 
 # ================= FSM =================
 class AdminStates(StatesGroup):
@@ -499,32 +445,6 @@ async def get_live_stats():
     return text
 
 # ================= USER HANDLERS =================
-@dp.callback_query(F.data == "verify_join")
-async def verify_join_callback(callback: types.CallbackQuery):
-    if await is_subscribed(callback.from_user.id):
-        await callback.message.delete()
-        await callback.answer("✅ ধন্যবাদ! আপনি সফলভাবে জয়েন করেছেন।", show_alert=True)
-        
-        user_name = callback.from_user.full_name
-        welcome_text = (
-            f"আসসালামু আলাইকুম, **{user_name}**!! 👋\n"
-            "**𝑺𝑲𝒀𝑺𝑴𝑺𝑷𝑹𝑶 𝑩𝑶𝑻**-এ আপনাকে স্বাগতম! 🚀\n\n"
-            "এই বটটির মাধ্যমে আপনি খুব সহজেই যেকোনো সার্ভিসের (যেমন: Telegram, WhatsApp, Facebook) ভেরিফিকেশনের জন্য ভার্চুয়াল নাম্বার এবং OTP পেতে পারেন।\n\n"
-            "👇 **কীভাবে ব্যবহার করবেন?**\n"
-            "📊 **𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮:** বর্তমানে কোন সার্ভিসের কতগুলো নাম্বার সফলভাবে OTP দিচ্ছে তার লাইভ আপডেট দেখতে পারবেন।\n"
-            "📞 **𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹:** এখান থেকে আপনি আপনার কাঙ্ক্ষিত সার্ভিসের নাম্বার নিতে পারবেন।\n"
-            "💰 **𝑩𝑨𝑳𝑨𝑵𝑪𝑬:** আপনার ওয়ালেট ব্যালেন্স চেক করতে এবং উইথড্র রিকোয়েস্ট দিতে পারবেন।\n\n"
-            "💡 _যেকোনো সাহায্যের জন্য আমাদের সাপোর্ট গ্রুপে যুক্ত থাকুন।_"
-        )
-        
-        await callback.message.answer(
-            welcome_text,
-            reply_markup=main_menu(callback.from_user.id),
-            parse_mode="Markdown" 
-        )
-    else:
-        await callback.answer("❌ আপনি এখনো সবগুলো চ্যানেল বা গ্রুপে জয়েন করেননি! সবগুলোতে জয়েন করে আবার চেক করুন।", show_alert=True)
-
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -532,10 +452,6 @@ async def start(message: types.Message, state: FSMContext):
                    (message.from_user.id, message.from_user.username, message.from_user.full_name))
     db.commit()
     
-    if not await is_subscribed(message.from_user.id):
-        await send_force_join_msg(message)
-        return
-
     if is_maintenance_mode() and not is_admin(message.from_user.id):
         await message.answer(
             "🔧 *Bot is under maintenance.* Features are temporarily unavailable. Please try again later.",
@@ -563,10 +479,6 @@ async def start(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "📊 𝑳𝑰𝑽𝑬 𝑺𝑬𝑹𝑽𝑰𝑪𝑬 𝑹𝑨𝑵𝑮")
 async def live_stats(message: types.Message):
-    if not await is_subscribed(message.from_user.id):
-        await send_force_join_msg(message)
-        return
-
     if await check_maintenance(message.from_user.id, message=message):
         return
     
@@ -586,10 +498,6 @@ async def live_stats(message: types.Message):
 
 @dp.message(F.text == "📞 𝑮𝑬𝑻 𝑵𝑼𝑴𝑩𝑬𝑹")
 async def get_2_menu(message: types.Message):
-    if not await is_subscribed(message.from_user.id):
-        await send_force_join_msg(message)
-        return
-
     if await check_maintenance(message.from_user.id, message=message):
         return
     msg = await message.answer("⏳ 🔄 Syncing latest ranges from API...")
@@ -786,10 +694,6 @@ async def cancel_all(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(F.text == "💰 𝑩𝑨𝑳𝑨𝑵𝑪𝑬")
 async def show_balance(message: types.Message):
-    if not await is_subscribed(message.from_user.id):
-        await send_force_join_msg(message)
-        return
-
     if await check_maintenance(message.from_user.id, message=message):
         return
     
@@ -1317,11 +1221,6 @@ async def auto_detect_range(message: types.Message, state: FSMContext):
     if not text_to_check:
         return
     
-    # Check Force Join
-    if not await is_subscribed(message.from_user.id):
-        await send_force_join_msg(message)
-        return
-
     if await check_maintenance(message.from_user.id, message=message):
         return
     
