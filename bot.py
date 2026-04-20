@@ -12,8 +12,15 @@ import re
 
 # ================= CONFIGURATION =================
 TOKEN = "8647348457:AAEi5Kre2Df4Xeig80aZzsd_7zR9MFO739Y"
+
+# --- Panel B (Old Panel) ---
 API_BASE_URL = "http://2.58.82.137:5000"
 API_KEY = "nxa_99f2f67b13e0e02bca175b1cbc40d57128958702"
+
+# --- Panel A (New Panel - MNIT Network) ---
+API_BASE_URL_NEW = "https://x.mnitnetwork.com"
+API_KEY_NEW = "M_A4UFFVM8R"
+
 OTP_GROUP_LINK = "https://t.me/+4nMAFt2hYk04YTRl"
 
 bot = Bot(token=TOKEN)
@@ -172,6 +179,8 @@ class AdminStates(StatesGroup):
     waiting_earning_rate = State()
     waiting_add_admin = State()
     waiting_remove_admin = State()
+    waiting_add_balance_id = State()
+    waiting_add_balance_amount = State()
 
 class WithdrawState(StatesGroup):
     waiting_number = State()
@@ -194,95 +203,125 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
     session = await get_session()
     end_time = datetime.now().timestamp() + duration_sec
     seen_ids = set()
-    url = f"{API_BASE_URL}/api/v1/console/logs?limit=30"
-    headers = {"X-API-Key": API_KEY, "Accept": "application/json"}
+    
+    url_B = f"{API_BASE_URL}/api/v1/console/logs?limit=30"
+    headers_B = {"X-API-Key": API_KEY, "Accept": "application/json"}
+    
+    url_A = f"{API_BASE_URL_NEW}/mapi/v1/public/numsuccess/info"
+    headers_A = {"mapikey": API_KEY_NEW}
     
     active_phones = list(phones)
     
     while datetime.now().timestamp() < end_time and active_phones:
+        unified_logs = []
+        
+        # Panel B Fetch
         try:
-            async with session.get(url, headers=headers, timeout=10) as resp:
+            async with session.get(url_B, headers=headers_B, timeout=10) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     logs = data.get("data", []) if isinstance(data, dict) else data
-                    if not isinstance(logs, list):
-                        logs = []
-                    
-                    for log in logs:
-                        msg_id = log.get("id")
-                        if msg_id in seen_ids:
-                            continue
-                            
-                        phone = str(log.get("phone", log.get("number", ""))).replace("+", "")
-                        
-                        for p in active_phones[:]:
-                            p_clean = str(p).replace("+", "")
-                            if p_clean and (p_clean in phone or phone in p_clean):
-                                seen_ids.add(msg_id)
-                                sms = log.get("sms", "")
-                                
-                                # সার্ভিস নাম ঠিক করা (না পেলে FB)
-                                service = log.get("service") or log.get("app") or log.get("service_name") or "FB"
-                                service = str(service).upper()
-                                
-                                # শর্ট ফর্ম কনভার্ট করা
-                                if service == "FACEBOOK":
-                                    service = "FB"
-                                elif service == "WHATSAPP":
-                                    service = "WS" 
-                                elif service == "TELEGRAM":
-                                    service = "TG"
-                                elif service == "INSTAGRAM":
-                                    service = "IG"
-                                elif service == "TWITTER" or service == "X":
-                                    service = "TW"
-                                elif not service:
-                                    service = "FB"
-                                    
-                                # অ্যাডমিন প্যানেল থেকে রেট নেওয়া
-                                cursor.execute("SELECT value FROM config WHERE key='earning_per_otp'")
-                                rate_row = cursor.fetchone()
-                                rate_val = rate_row[0] if rate_row else "0.00"
-                                
-                                # ইউজারের ব্যালেন্সে টাকা যুক্ত করা এবং টপ ১০ লিডারবোর্ডের জন্য লগ সেভ করা
-                                try:
-                                    cursor.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (float(rate_val), chat_id))
-                                    # সফল OTP লগ এন্ট্রি (1 মাসের হিসেবের জন্য)
-                                    cursor.execute("INSERT INTO otp_success_logs (user_id, timestamp) VALUES (?, ?)", (chat_id, datetime.now().isoformat()))
-                                    db.commit()
-                                except Exception as e:
-                                    pass
-
-                                # দেশের শর্ট ফর্ম এবং পতাকা বের করা
-                                country_code, flag = get_country_from_phone(p)
-                                
-                                # OTP খোঁজা
-                                match = re.search(r'\b\d{4,10}\b', sms)
-                                otp = match.group(0) if match else "Found in text"
-                                
-                                # বক্স ডিজাইন (ডাইনামিক সাইজ - লেখা যতটুকু, বক্স ততটুকু)
-                                content = f"{flag} {country_code}➔{service}➔৳{rate_val}"
-                                
-                                border_len = len(content) + 2 
-                                top_border = "╔" + "═" * border_len + "╗"
-                                bottom_border = "╚" + "═" * border_len + "╝"
-                                
-                                text = (
-                                    f"{top_border}\n"
-                                    f"║ {content} ║\n"
-                                    f"{bottom_border}"
-                                )
-                                
-                                # কপি করার ইনলাইন বাটন
-                                builder = InlineKeyboardBuilder()
-                                builder.row(types.InlineKeyboardButton(text=f"{flag} {p}", copy_text=CopyTextButton(text=p)))
-                                builder.row(types.InlineKeyboardButton(text=f" {otp}", copy_text=CopyTextButton(text=otp)))
-                                
-                                await bot.send_message(chat_id, text, reply_markup=builder.as_markup(), parse_mode="Markdown")
-                                active_phones.remove(p)
-                                break
+                    if isinstance(logs, list):
+                        for log in logs:
+                            unified_logs.append({
+                                "id": log.get("id"),
+                                "phone": str(log.get("phone", log.get("number", ""))).replace("+", ""),
+                                "sms": log.get("sms", ""),
+                                "service": log.get("service") or log.get("app") or log.get("service_name") or "FB"
+                            })
         except Exception as e:
             pass
+
+        # Panel A Fetch
+        try:
+            async with session.get(url_A, headers=headers_A, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    logs = data.get("data", {}).get("otps", [])
+                    if isinstance(logs, list):
+                        for log in logs:
+                            unified_logs.append({
+                                "id": log.get("nid"),
+                                "phone": str(log.get("number", "")).replace("+", ""),
+                                "sms": log.get("otp", ""),
+                                "service": log.get("operator") or "FB"
+                            })
+        except Exception as e:
+            pass
+
+        for log in unified_logs:
+            msg_id = log.get("id")
+            if msg_id in seen_ids:
+                continue
+                
+            phone = log.get("phone", "")
+            
+            for p in active_phones[:]:
+                p_clean = str(p).replace("+", "")
+                if p_clean and (p_clean in phone or phone in p_clean):
+                    seen_ids.add(msg_id)
+                    sms = log.get("sms", "")
+                    
+                    # সার্ভিস নাম ঠিক করা (না পেলে FB)
+                    service = log.get("service") or "FB"
+                    service = str(service).upper()
+                    
+                    # শর্ট ফর্ম কনভার্ট করা
+                    if service == "FACEBOOK":
+                        service = "FB"
+                    elif service == "WHATSAPP":
+                        service = "WS" 
+                    elif service == "TELEGRAM":
+                        service = "TG"
+                    elif service == "INSTAGRAM":
+                        service = "IG"
+                    elif service == "TWITTER" or service == "X":
+                        service = "TW"
+                    elif not service:
+                        service = "FB"
+                        
+                    # অ্যাডমিন প্যানেল থেকে রেট নেওয়া
+                    cursor.execute("SELECT value FROM config WHERE key='earning_per_otp'")
+                    rate_row = cursor.fetchone()
+                    rate_val = rate_row[0] if rate_row else "0.00"
+                    
+                    # ইউজারের ব্যালেন্সে টাকা যুক্ত করা এবং টপ ১০ লিডারবোর্ডের জন্য লগ সেভ করা
+                    try:
+                        cursor.execute("UPDATE users SET balance = balance + ? WHERE id = ?", (float(rate_val), chat_id))
+                        # সফল OTP লগ এন্ট্রি (1 মাসের হিসেবের জন্য)
+                        cursor.execute("INSERT INTO otp_success_logs (user_id, timestamp) VALUES (?, ?)", (chat_id, datetime.now().isoformat()))
+                        db.commit()
+                    except Exception as e:
+                        pass
+
+                    # দেশের শর্ট ফর্ম এবং পতাকা বের করা
+                    country_code, flag = get_country_from_phone(p)
+                    
+                    # OTP খোঁজা
+                    match = re.search(r'\b\d{4,10}\b', sms)
+                    otp = match.group(0) if match else "Found in text"
+                    
+                    # বক্স ডিজাইন (ডাইনামিক সাইজ - লেখা যতটুকু, বক্স ততটুকু)
+                    content = f"{flag} {country_code}➔{service}➔৳{rate_val}"
+                    
+                    border_len = len(content) + 2 
+                    top_border = "╔" + "═" * border_len + "╗"
+                    bottom_border = "╚" + "═" * border_len + "╝"
+                    
+                    text = (
+                        f"{top_border}\n"
+                        f"║ {content} ║\n"
+                        f"{bottom_border}"
+                    )
+                    
+                    # কপি করার ইনলাইন বাটন
+                    builder = InlineKeyboardBuilder()
+                    builder.row(types.InlineKeyboardButton(text=f"{flag} {p}", copy_text=CopyTextButton(text=p)))
+                    builder.row(types.InlineKeyboardButton(text=f" {otp}", copy_text=CopyTextButton(text=otp)))
+                    
+                    await bot.send_message(chat_id, text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+                    active_phones.remove(p)
+                    break
         await asyncio.sleep(5)
 
 async def sync_services_from_api():
@@ -327,7 +366,28 @@ async def sync_services_from_api():
         print(f"API sync error: {e}")
     return False
 
-async def fetch_one_number(range_val: str, attempt: int = 0):
+async def fetch_one_number_A(range_val: str, attempt: int = 0):
+    url = f"{API_BASE_URL_NEW}/mapi/v1/public/getnum/number"
+    headers = {"mapikey": API_KEY_NEW, "Content-Type": "application/json"}
+    payload = {"range": range_val, "is_national": False, "remove_plus": False}
+    try:
+        session = await get_session()
+        async with session.post(url, json=payload, headers=headers, timeout=15) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if isinstance(data, dict) and 'data' in data and 'full_number' in data['data']:
+                    num = data['data']['full_number']
+                    return (num, num) 
+            if attempt < 2:
+                await asyncio.sleep(2)
+                return await fetch_one_number_A(range_val, attempt=attempt+1)
+    except Exception as e:
+        if attempt < 2:
+            await asyncio.sleep(2)
+            return await fetch_one_number_A(range_val, attempt=attempt+1)
+    return None
+
+async def fetch_one_number_B(range_val: str, attempt: int = 0):
     url = f"{API_BASE_URL}/api/v1/numbers/get"
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     payload = {"range": range_val, "format": "international"}
@@ -340,20 +400,37 @@ async def fetch_one_number(range_val: str, attempt: int = 0):
                     return (data['number_id'], data['number'])
             if attempt < 2:
                 await asyncio.sleep(2)
-                return await fetch_one_number(range_val, attempt=attempt+1)
+                return await fetch_one_number_B(range_val, attempt=attempt+1)
     except Exception as e:
         print(f"fetch_one_number error: {e}")
         if attempt < 2:
             await asyncio.sleep(2)
-            return await fetch_one_number(range_val, attempt=attempt+1)
+            return await fetch_one_number_B(range_val, attempt=attempt+1)
     return None
 
-async def fetch_numbers_by_range(range_val: str, limit: int = 2):
-    tasks = [fetch_one_number(range_val) for _ in range(limit)]
+async def fetch_numbers_by_range(range_val: str, panel: str, limit: int = 2):
+    if panel == 'A':
+        tasks = [fetch_one_number_A(range_val) for _ in range(limit)]
+    else:
+        tasks = [fetch_one_number_B(range_val) for _ in range(limit)]
     results = await asyncio.gather(*tasks)
     return [res for res in results if res is not None]
 
-# ================= KEYBOARDS =================
+# ================= KEYBOARDS & PANELS =================
+async def ask_panel_selection(message_or_callback, range_val: str):
+    text = f"⚙️ *Select Server Panel for Range:* `{range_val}`\n\n🟢 *Panel A:* New Server\n🔵 *Panel B:* Old Server"
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text="🟢 Panel A", callback_data=f"pnl_A_{range_val}"),
+        types.InlineKeyboardButton(text="🔵 Panel B", callback_data=f"pnl_B_{range_val}")
+    )
+    builder.row(types.InlineKeyboardButton(text="🔙 Cancel", callback_data="main_menu"))
+    
+    if isinstance(message_or_callback, types.CallbackQuery):
+        await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    else:
+        await message_or_callback.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
 def main_menu(user_id: int):
     builder = ReplyKeyboardBuilder()
     builder.row(
@@ -397,7 +474,8 @@ def admin_menu():
     builder.button(text="⚙️ Set Min Withdraw", callback_data="set_min_withdraw")
     builder.button(text="📋 Withdraw Requests", callback_data="view_withdraw_requests")
     builder.button(text="📊 Analytics", callback_data="analytics")
-    builder.button(text="👥 Total Users", callback_data="total_users")
+    # Total Users বাদ দিয়ে Add Balance যোগ করা হলো
+    builder.button(text="💳 Add Balance", callback_data="add_balance_btn")
     builder.button(text="🏆 Top 10 Users", callback_data="top_10_users")
     
     current_w = "ON" if is_withdraw_enabled() else "OFF"
@@ -417,7 +495,6 @@ def admin_management_menu():
     builder.row(types.InlineKeyboardButton(text="📋 List Admins", callback_data="list_admins"))
     builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
     return builder.as_markup()
-
 # ================= LIVE STATS =================
 async def get_live_stats():
     cursor.execute("""
@@ -545,88 +622,17 @@ async def back_to_apps(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-async def send_numbers_message(callback_or_msg, service_id: int, limit: int = 2, range_val_override: str = None):
-    if range_val_override:
-        range_val = range_val_override
-        name = "Custom Range"
-        flag = "🌍"
-        sid = None
-    else:
-        cursor.execute("SELECT id, name, range_val, flag, country_code FROM services WHERE id=?", (service_id,))
-        svc = cursor.fetchone()
-        if not svc:
-            if isinstance(callback_or_msg, types.CallbackQuery):
-                await callback_or_msg.answer("Service not found!", show_alert=True)
-            else:
-                await callback_or_msg.answer("Service not found!")
-            return None
-        sid, name, range_val, flag, country_code = svc
-    
-    if isinstance(callback_or_msg, types.CallbackQuery):
-        await callback_or_msg.answer(f"⏳ Preparing {limit} numbers...")
-        target_message = callback_or_msg.message
-    else:
-        target_message = callback_or_msg
-    
-    numbers = await fetch_numbers_by_range(range_val, limit=limit)
-    if not numbers:
-        await target_message.edit_text(f"❌ Could not fetch any numbers for `{range_val}`. Please try again later.")
-        return None
-    
-    country_map = {
-        "BD": "Bangladesh", "US": "United States", "IN": "India", "MM": "Myanmar",
-        "PK": "Pakistan", "RU": "Russia", "UA": "Ukraine", "GB": "United Kingdom",
-        "FR": "France", "DE": "Germany", "IT": "Italy", "ES": "Spain",
-        "BR": "Brazil", "AR": "Argentina", "MX": "Mexico", "ID": "Indonesia",
-        "PH": "Philippines", "VN": "Vietnam", "TH": "Thailand", "TR": "Turkey",
-        "EG": "Egypt", "NG": "Nigeria", "ZA": "South Africa", "KE": "Kenya",
-        "SL": "Sierra Leone", "LR": "Liberia", "GH": "Ghana", "CM": "Cameroon"
-    }
-    
-    if range_val_override:
-        first_phone = numbers[0][1]
-        country_code, flag_from_phone = get_country_from_phone(first_phone)
-        flag = flag_from_phone
-        country_name = country_map.get(country_code, country_code)
-        range_info = f"{flag} *{country_name}* `[{range_val}]`"
-    else:
-        country_name = country_map.get(country_code, country_code)
-        range_info = f"{flag} *{country_name}* `[{range_val}]`"
-    
-    text = f"{range_info}\n━━━━━━━━━━━━━━━━━━━━\n⏳ *Waiting for OTP...*"
-    
-    builder = InlineKeyboardBuilder()
-    for idx, (nid, phone) in enumerate(numbers, 1):
-        formatted = format_number_with_flag(phone)
-        builder.row(types.InlineKeyboardButton(
-            text=f" {formatted}",
-            copy_text=CopyTextButton(text=phone)
-        ))
-    
-    callback_data_change = f"change_{service_id}_{limit}" if not range_val_override else f"change_custom_{range_val}_{limit}"
-    
-    builder.row(
-        types.InlineKeyboardButton(text="♻️𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
-        types.InlineKeyboardButton(text="💬𝑮𝑬𝑻 𝑶𝑻𝑷", url=OTP_GROUP_LINK)
-    )
-    builder.row(
-        types.InlineKeyboardButton(text="🔙 𝑴𝑬𝑵𝑼", callback_data="main_menu")
-    )
-    
-    await target_message.delete()
-    sent = await target_message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
-    
-    phones_list = [p[1] for p in numbers]
-    asyncio.create_task(poll_for_otp(sent.chat.id, phones_list, duration_sec=300))
-    
-    return sent
-
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
     if await check_maintenance(callback.from_user.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
-    await send_numbers_message(callback, service_id, limit=2)
+    cursor.execute("SELECT range_val FROM services WHERE id=?", (service_id,))
+    row = cursor.fetchone()
+    if not row:
+        await callback.answer("Service not found!", show_alert=True)
+        return
+    await ask_panel_selection(callback, row[0])
 
 @dp.callback_query(F.data == "custom_range")
 async def custom_range_prompt(callback: types.CallbackQuery, state: FSMContext):
@@ -641,43 +647,95 @@ async def custom_range_received(message: types.Message, state: FSMContext):
     if await check_maintenance(message.from_user.id, message=message):
         await state.clear()
         return
-    range_val = message.text.strip()
+    range_val = message.text.strip().upper()
     if not range_val:
         await message.answer("❌ Invalid range. Please try again or /cancel.")
         return
-    test_number = await fetch_one_number(range_val, attempt=0)
-    if not test_number:
-        await message.answer(f"❌ Range `{range_val}` does not exist or API returned no numbers. Please check the range.")
-        await state.clear()
-        return
-    
-    cursor.execute("SELECT id FROM services WHERE range_val=?", (range_val,))
-    existing = cursor.fetchone()
-    if existing:
-        sid = existing[0]
-        await send_numbers_message(message, sid, limit=2, range_val_override=range_val)
-    else:
-        await send_numbers_message(message, service_id=None, limit=2, range_val_override=range_val)
+    await ask_panel_selection(message, range_val)
     await state.clear()
 
-@dp.callback_query(F.data.startswith("change_"))
-async def change_number(callback: types.CallbackQuery):
+# --- PANEL SELECTION HANDLER ---
+@dp.callback_query(F.data.startswith("pnl_"))
+async def process_panel_selection(callback: types.CallbackQuery):
     if await check_maintenance(callback.from_user.id, callback=callback):
         return
-    parts = callback.data.split("_")
-    if parts[1] == "custom":
-        range_val = parts[2]
-        limit = int(parts[3])
-        cursor.execute("SELECT id FROM services WHERE range_val=?", (range_val,))
-        row = cursor.fetchone()
-        if row:
-            await send_numbers_message(callback, row[0], limit=limit, range_val_override=range_val)
-        else:
-            await send_numbers_message(callback, service_id=None, limit=limit, range_val_override=range_val)
+    parts = callback.data.split("_", 2)
+    panel = parts[1]
+    range_val = parts[2]
+    await send_numbers_message(callback, range_val, panel, limit=2)
+
+async def send_numbers_message(callback_or_msg, range_val: str, panel: str, limit: int = 2):
+    cursor.execute("SELECT name, flag, country_code FROM services WHERE range_val=?", (range_val,))
+    row = cursor.fetchone()
+    
+    if isinstance(callback_or_msg, types.CallbackQuery):
+        await callback_or_msg.answer(f"⏳ Fetching from Panel {panel}...")
+        target_message = callback_or_msg.message
     else:
-        service_id = int(parts[1])
-        limit = int(parts[2])
-        await send_numbers_message(callback, service_id, limit=limit)
+        target_message = callback_or_msg
+    
+    numbers = await fetch_numbers_by_range(range_val, panel, limit=limit)
+    if not numbers:
+        await target_message.edit_text(f"❌ Could not fetch any numbers for `{range_val}` from Panel {panel}. Please try again later.")
+        return None
+    
+    country_map = {
+        "BD": "Bangladesh", "US": "United States", "IN": "India", "MM": "Myanmar",
+        "PK": "Pakistan", "RU": "Russia", "UA": "Ukraine", "GB": "United Kingdom",
+        "FR": "France", "DE": "Germany", "IT": "Italy", "ES": "Spain",
+        "BR": "Brazil", "AR": "Argentina", "MX": "Mexico", "ID": "Indonesia",
+        "PH": "Philippines", "VN": "Vietnam", "TH": "Thailand", "TR": "Turkey",
+        "EG": "Egypt", "NG": "Nigeria", "ZA": "South Africa", "KE": "Kenya",
+        "SL": "Sierra Leone", "LR": "Liberia", "GH": "Ghana", "CM": "Cameroon"
+    }
+    
+    if row:
+        name, flag, country_code = row
+    else:
+        name = "Custom Range"
+        first_phone = numbers[0][1]
+        country_code, flag = get_country_from_phone(first_phone)
+        
+    country_name = country_map.get(country_code, country_code)
+    range_info = f"{flag} *{country_name}*➔`[{range_val}]`"
+    
+    text = f"{range_info}\n━━━━━━━━━━━━━━━━━━━━━\n⏳ *Waiting for OTP....*"
+    
+    builder = InlineKeyboardBuilder()
+    for idx, (nid, phone) in enumerate(numbers, 1):
+        formatted = format_number_with_flag(phone)
+        builder.row(types.InlineKeyboardButton(
+            text=f" {formatted}",
+            copy_text=CopyTextButton(text=phone)
+        ))
+    
+    callback_data_change = f"chg_{panel}_{range_val}_{limit}"
+    
+    builder.row(
+        types.InlineKeyboardButton(text="♻️ 𝑪𝑯𝑨𝑵𝑮𝑬", callback_data=callback_data_change),
+        types.InlineKeyboardButton(text="💬 𝑮𝑬𝑻 𝑶𝑻𝑷", url=OTP_GROUP_LINK)
+    )
+    builder.row(
+        types.InlineKeyboardButton(text="🔙 𝑴𝑬𝑵𝑼", callback_data="main_menu")
+    )
+    
+    await target_message.delete()
+    sent = await target_message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    
+    phones_list = [p[1] for p in numbers]
+    asyncio.create_task(poll_for_otp(sent.chat.id, phones_list, duration_sec=300))
+    
+    return sent
+
+@dp.callback_query(F.data.startswith("chg_"))
+async def change_number_panel(callback: types.CallbackQuery):
+    if await check_maintenance(callback.from_user.id, callback=callback):
+        return
+    parts = callback.data.split("_", 3)
+    panel = parts[1]
+    range_val = parts[2]
+    limit = int(parts[3])
+    await send_numbers_message(callback, range_val, panel, limit=limit)
 
 @dp.callback_query(F.data == "main_menu")
 async def cancel_all(callback: types.CallbackQuery, state: FSMContext):
@@ -813,13 +871,52 @@ async def analytics_cb(callback: types.CallbackQuery):
     builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
     await callback.message.edit_text(stats, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
-@dp.callback_query(F.data == "total_users")
-async def show_total_users(callback: types.CallbackQuery):
+# --- ADD BALANCE IMPLEMENTATION ---
+@dp.callback_query(F.data == "add_balance_btn")
+async def add_balance_btn(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         return
-    cursor.execute("SELECT COUNT(id) FROM users")
-    count = cursor.fetchone()[0]
-    await callback.answer(f"👥 Total Users in Bot: {count}", show_alert=True)
+    await callback.message.edit_text("✏️ Enter the User ID to add balance:")
+    await state.set_state(AdminStates.waiting_add_balance_id)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_add_balance_id)
+async def add_balance_id(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    uid = message.text.strip()
+    if not uid.isdigit():
+        await message.answer("❌ Invalid User ID. Must be numeric.")
+        return
+    cursor.execute("SELECT id FROM users WHERE id=?", (uid,))
+    if not cursor.fetchone():
+        await message.answer("❌ User not found in database.")
+        await state.clear()
+        return
+    await state.update_data(add_bal_id=uid)
+    await message.answer("💰 Enter the amount of TK to add:")
+    await state.set_state(AdminStates.waiting_add_balance_amount)
+
+@dp.message(AdminStates.waiting_add_balance_amount)
+async def add_balance_amount(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amt = float(message.text.strip())
+        data = await state.get_data()
+        uid = data['add_bal_id']
+        cursor.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amt, uid))
+        db.commit()
+        await message.answer(f"✅ Successfully added `৳{amt}` to User `{uid}`.", parse_mode="Markdown")
+        try:
+            await bot.send_message(uid, f"🎁 *Congratulations!*\nAdmin has added `৳{amt}` to your wallet.\nCheck your /start -> Balance.", parse_mode="Markdown")
+        except:
+            pass
+    except ValueError:
+        await message.answer("❌ Invalid amount.")
+    finally:
+        await state.clear()
+        await admin_main(message)
 
 @dp.callback_query(F.data == "top_10_users")
 async def show_top_10_users(callback: types.CallbackQuery):
@@ -1159,7 +1256,7 @@ async def reject_wd(callback: types.CallbackQuery):
 async def admin_back(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id): return
     await callback.answer()
-    await callback.message.edit_text("⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨𝑵𝑬𝑳", reply_markup=admin_menu(), parse_mode="Markdown")
+    await callback.message.edit_text("⚙️ 𝑨𝑫𝑴𝑰𝑵 𝑷𝑨্নেল", reply_markup=admin_menu(), parse_mode="Markdown")
 
 @dp.callback_query(F.data == "close_admin_panel")
 async def close_admin_panel(callback: types.CallbackQuery):
@@ -1228,22 +1325,9 @@ async def auto_detect_range(message: types.Message, state: FSMContext):
     if not range_val:
         return
     
-    await message.answer(f"🔍 Auto-detected range: `{range_val}`\n⏳ Checking availability...", parse_mode="Markdown")
+    await message.answer(f"🔍 Auto-detected range: `{range_val}`", parse_mode="Markdown")
     
-    test_number = await fetch_one_number(range_val, attempt=0)
-    
-    if not test_number:
-        await message.answer(f"❌ Range `{range_val}` does not exist or no numbers available.\nPlease check the range and try again.")
-        return
-    
-    cursor.execute("SELECT id FROM services WHERE range_val=?", (range_val,))
-    existing = cursor.fetchone()
-    
-    if existing:
-        sid = existing[0]
-        await send_numbers_message(message, sid, limit=2, range_val_override=range_val)
-    else:
-        await send_numbers_message(message, service_id=None, limit=2, range_val_override=range_val)
+    await ask_panel_selection(message, range_val)
 
 # ================= SHUTDOWN CLEANUP =================
 async def on_shutdown():
