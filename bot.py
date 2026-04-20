@@ -418,13 +418,22 @@ async def fetch_numbers_by_range(range_val: str, panel: str, limit: int = 2):
 
 # ================= KEYBOARDS & PANELS =================
 async def ask_panel_selection(message_or_callback, range_val: str):
-    text = f"⚙️ *Select Server Panel for Range:* `{range_val}`\n\n🟢 *Panel A:* New Server\n🔵 *Panel B:* Old Server"
+    text = (
+        f"⚡ *𝐏𝐑𝐄𝐌𝐈𝐔𝐌 𝐒𝐄𝐑𝐕𝐄𝐑 𝐏𝐀𝐍𝐄𝐋* ⚡\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 *Selected Range:* `{range_val}`\n\n"
+        f"🚀 *Choose a server to fetch numbers:*\n"
+        f"🌟 *Panel A:* `Super Fast Server (Recommended)`\n"
+        f"💠 *Panel B:* `Stable Legacy Server`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━"
+    )
+    
     builder = InlineKeyboardBuilder()
     builder.row(
-        types.InlineKeyboardButton(text="🟢 Panel A", callback_data=f"pnl_A_{range_val}"),
-        types.InlineKeyboardButton(text="🔵 Panel B", callback_data=f"pnl_B_{range_val}")
+        types.InlineKeyboardButton(text="🌟 𝐏𝐀𝐍𝐄𝐋 𝐀 (𝐅𝐚𝐬𝐭)", callback_data=f"pnl_A_{range_val}"),
+        types.InlineKeyboardButton(text="💠 𝐏𝐀𝐍𝐄𝐋 𝐁 (𝐒𝐭𝐚𝐛𝐥𝐞)", callback_data=f"pnl_B_{range_val}")
     )
-    builder.row(types.InlineKeyboardButton(text="🔙 Cancel", callback_data="main_menu"))
+    builder.row(types.InlineKeyboardButton(text="🔙 𝐂𝐚𝐧𝐜𝐞𝐥 & 𝐑𝐞𝐭𝐮𝐫𝐧", callback_data="main_menu"))
     
     if isinstance(message_or_callback, types.CallbackQuery):
         await message_or_callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
@@ -624,7 +633,7 @@ async def back_to_apps(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    if await check_maintenance(callback.from_user.id, callback=callback):
+    if await check_maintenance(callback.fromuser.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
     cursor.execute("SELECT range_val FROM services WHERE id=?", (service_id,))
