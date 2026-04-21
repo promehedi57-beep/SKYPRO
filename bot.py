@@ -237,17 +237,16 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
             async with session.get(url_A, headers=headers_A, timeout=10, ssl=False) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    data_obj = data.get("data")
-                    if data_obj and isinstance(data_obj, dict):
-                        logs = data_obj.get("otps", [])
-                        if isinstance(logs, list):
-                            for log in logs:
-                                unified_logs.append({
-                                    "id": log.get("nid"),
-                                    "phone": str(log.get("number", "")).replace("+", ""),
-                                    "sms": log.get("otp", ""),
-                                    "service": log.get("operator") or "FB"
-                                })
+                    raw_data = data.get("data", [])
+                    logs = raw_data.get("otps", []) if isinstance(raw_data, dict) else raw_data
+                    if isinstance(logs, list):
+                        for log in logs:
+                            unified_logs.append({
+                                "id": log.get("nid", log.get("id")),
+                                "phone": str(log.get("number", log.get("phone", ""))).replace("+", ""),
+                                "sms": log.get("otp", log.get("sms", "")),
+                                "service": log.get("operator", log.get("service", "FB"))
+                            })
         except Exception as e:
             pass
 
@@ -371,25 +370,33 @@ async def sync_services_from_api():
 async def fetch_one_number_A(range_val: str, attempt: int = 0):
     url = f"{API_BASE_URL_NEW}/mapi/v1/public/getnum/number"
     headers = {"mapikey": API_KEY_NEW, "Content-Type": "application/json"}
-    payload = {"range": range_val, "is_national": False, "remove_plus": False}
+    payload = {"range": range_val}
     try:
         session = await get_session()
         async with session.post(url, json=payload, headers=headers, timeout=15, ssl=False) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
-                    num_data = data.get("data")
-                    if num_data and isinstance(num_data, dict):
-                        num = num_data.get("full_number")
-                        if num:
-                            clean_num = str(num).replace("+", "")
-                            return (clean_num, clean_num)
+                if isinstance(data, dict):
+                    num_data = data.get('data', {}) if 'data' in data else data
+                    num = num_data.get('full_number') or num_data.get('number') or num_data.get('phone')
+                    if num:
+                        return (str(num), str(num))
+            elif resp.status == 405: # Fallback to GET method if POST is not allowed
+                async with session.get(url, params=payload, headers={"mapikey": API_KEY_NEW}, timeout=15, ssl=False) as resp_get:
+                    if resp_get.status == 200:
+                        data = await resp_get.json()
+                        if isinstance(data, dict):
+                            num_data = data.get('data', {}) if 'data' in data else data
+                            num = num_data.get('full_number') or num_data.get('number') or num_data.get('phone')
+                            if num:
+                                return (str(num), str(num))
+        if attempt < 2:
+            await asyncio.sleep(2)
+            return await fetch_one_number_A(range_val, attempt=attempt+1)
     except Exception as e:
-        pass
-
-    if attempt < 2:
-        await asyncio.sleep(2)
-        return await fetch_one_number_A(range_val, attempt=attempt+1)
+        if attempt < 2:
+            await asyncio.sleep(2)
+            return await fetch_one_number_A(range_val, attempt=attempt+1)
     return None
 
 async def fetch_one_number_B(range_val: str, attempt: int = 0):
@@ -423,11 +430,11 @@ async def fetch_numbers_by_range(range_val: str, panel: str, limit: int = 2):
 
 # ================= KEYBOARDS & PANELS =================
 async def ask_panel_selection(message_or_callback, range_val: str):
-    text = f"⚙️ *Select Server Panel for Range:* `{range_val}`\n\n🟢 *Panel A:* New Server\n🔵 *Panel B:* Old Server"
+    text = f"⚙️ *Select Server for Range:* `{range_val}`\n\n🟢 *A:* New Server\n🔵 *B:* Old Server"
     builder = InlineKeyboardBuilder()
     builder.row(
-        types.InlineKeyboardButton(text="🟢 Panel A", callback_data=f"pnl_A_{range_val}"),
-        types.InlineKeyboardButton(text="🔵 Panel B", callback_data=f"pnl_B_{range_val}")
+        types.InlineKeyboardButton(text="🟢 A", callback_data=f"pnl_A_{range_val}"),
+        types.InlineKeyboardButton(text="🔵 B", callback_data=f"pnl_B_{range_val}")
     )
     builder.row(types.InlineKeyboardButton(text="🔙 Cancel", callback_data="main_menu"))
     
@@ -682,7 +689,7 @@ async def send_numbers_message(callback_or_msg, range_val: str, panel: str, limi
     
     numbers = await fetch_numbers_by_range(range_val, panel, limit=limit)
     if not numbers:
-        await target_message.edit_text(f"❌ Could not fetch any numbers for `{range_val}` from Panel {panel}. Please try again later.")
+        await target_message.edit_text(f"❌ Could not fetch any numbers for `{range_val}` from Server {panel}. Please try again later.")
         return None
     
     country_map = {
