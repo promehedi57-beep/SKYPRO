@@ -234,7 +234,7 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
 
         # Panel A Fetch
         try:
-            async with session.get(url_A, headers=headers_A, timeout=10) as resp:
+            async with session.get(url_A, headers=headers_A, timeout=10, ssl=False) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     logs = data.get("data", {}).get("otps", [])
@@ -372,12 +372,24 @@ async def fetch_one_number_A(range_val: str, attempt: int = 0):
     payload = {"range": range_val, "is_national": False, "remove_plus": False}
     try:
         session = await get_session()
-        async with session.post(url, json=payload, headers=headers, timeout=15) as resp:
+        # Changed to handle SSL issues and robust key parsing
+        async with session.post(url, json=payload, headers=headers, timeout=15, ssl=False) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                if isinstance(data, dict) and 'data' in data and 'full_number' in data['data']:
-                    num = data['data']['full_number']
-                    return (num, num) 
+                if isinstance(data, dict):
+                    num_data = data.get('data', {}) if 'data' in data else data
+                    num = num_data.get('full_number') or num_data.get('number') or num_data.get('phone')
+                    if num:
+                        return (str(num), str(num))
+            elif resp.status == 405: # Fallback to GET method if POST is not allowed
+                async with session.get(url, params=payload, headers=headers, timeout=15, ssl=False) as resp_get:
+                    if resp_get.status == 200:
+                        data = await resp_get.json()
+                        if isinstance(data, dict):
+                            num_data = data.get('data', {}) if 'data' in data else data
+                            num = num_data.get('full_number') or num_data.get('number') or num_data.get('phone')
+                            if num:
+                                return (str(num), str(num))
             if attempt < 2:
                 await asyncio.sleep(2)
                 return await fetch_one_number_A(range_val, attempt=attempt+1)
@@ -624,7 +636,7 @@ async def back_to_apps(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    if await check_maintenance(callback.from_user.id, callback=callback):
+    if await check_maintenance(callback.fromuser.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
     cursor.execute("SELECT range_val FROM services WHERE id=?", (service_id,))
