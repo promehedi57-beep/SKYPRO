@@ -237,15 +237,17 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
             async with session.get(url_A, headers=headers_A, timeout=10, ssl=False) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    logs = data.get("data", {}).get("otps", [])
-                    if isinstance(logs, list):
-                        for log in logs:
-                            unified_logs.append({
-                                "id": log.get("nid"),
-                                "phone": str(log.get("number", "")).replace("+", ""),
-                                "sms": log.get("otp", ""),
-                                "service": log.get("operator") or "FB"
-                            })
+                    data_obj = data.get("data")
+                    if data_obj and isinstance(data_obj, dict):
+                        logs = data_obj.get("otps", [])
+                        if isinstance(logs, list):
+                            for log in logs:
+                                unified_logs.append({
+                                    "id": log.get("nid"),
+                                    "phone": str(log.get("number", "")).replace("+", ""),
+                                    "sms": log.get("otp", ""),
+                                    "service": log.get("operator") or "FB"
+                                })
         except Exception as e:
             pass
 
@@ -372,31 +374,22 @@ async def fetch_one_number_A(range_val: str, attempt: int = 0):
     payload = {"range": range_val, "is_national": False, "remove_plus": False}
     try:
         session = await get_session()
-        # Changed to handle SSL issues and robust key parsing
         async with session.post(url, json=payload, headers=headers, timeout=15, ssl=False) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                if isinstance(data, dict):
-                    num_data = data.get('data', {}) if 'data' in data else data
-                    num = num_data.get('full_number') or num_data.get('number') or num_data.get('phone')
-                    if num:
-                        return (str(num), str(num))
-            elif resp.status == 405: # Fallback to GET method if POST is not allowed
-                async with session.get(url, params=payload, headers=headers, timeout=15, ssl=False) as resp_get:
-                    if resp_get.status == 200:
-                        data = await resp_get.json()
-                        if isinstance(data, dict):
-                            num_data = data.get('data', {}) if 'data' in data else data
-                            num = num_data.get('full_number') or num_data.get('number') or num_data.get('phone')
-                            if num:
-                                return (str(num), str(num))
-            if attempt < 2:
-                await asyncio.sleep(2)
-                return await fetch_one_number_A(range_val, attempt=attempt+1)
+                if isinstance(data, dict) and data.get("meta", {}).get("code") == 200:
+                    num_data = data.get("data")
+                    if num_data and isinstance(num_data, dict):
+                        num = num_data.get("full_number")
+                        if num:
+                            clean_num = str(num).replace("+", "")
+                            return (clean_num, clean_num)
     except Exception as e:
-        if attempt < 2:
-            await asyncio.sleep(2)
-            return await fetch_one_number_A(range_val, attempt=attempt+1)
+        pass
+
+    if attempt < 2:
+        await asyncio.sleep(2)
+        return await fetch_one_number_A(range_val, attempt=attempt+1)
     return None
 
 async def fetch_one_number_B(range_val: str, attempt: int = 0):
@@ -507,6 +500,7 @@ def admin_management_menu():
     builder.row(types.InlineKeyboardButton(text="📋 List Admins", callback_data="list_admins"))
     builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
     return builder.as_markup()
+
 # ================= LIVE STATS =================
 async def get_live_stats():
     cursor.execute("""
@@ -636,7 +630,7 @@ async def back_to_apps(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    if await check_maintenance(callback.fromuser.id, callback=callback):
+    if await check_maintenance(callback.from_user.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
     cursor.execute("SELECT range_val FROM services WHERE id=?", (service_id,))
