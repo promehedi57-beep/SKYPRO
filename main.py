@@ -264,22 +264,26 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
                     sms = log.get("sms", "")
                     
                     # সার্ভিস নাম ঠিক করা (না পেলে FB)
-                    service = log.get("service") or "FB"
-                    service = str(service).upper()
-                    
-                    # শর্ট ফর্ম কনভার্ট করা
-                    if service == "FACEBOOK":
+                    raw_service = log.get("service")
+                    if not raw_service:
                         service = "FB"
-                    elif service == "WHATSAPP":
-                        service = "WS" 
-                    elif service == "TELEGRAM":
-                        service = "TG"
-                    elif service == "INSTAGRAM":
-                        service = "IG"
-                    elif service == "TWITTER" or service == "X":
-                        service = "TW"
-                    elif not service:
-                        service = "FB"
+                    else:
+                        service = str(raw_service).upper().strip()
+                        
+                        # শর্ট ফর্ম কনভার্ট করা
+                        if service in ["FACEBOOK", "FB"]:
+                            service = "FB"
+                        elif service in ["WHATSAPP", "WA", "WS"]:
+                            service = "WS" 
+                        elif service in ["TELEGRAM", "TG"]:
+                            service = "TG"
+                        elif service in ["INSTAGRAM", "IG"]:
+                            service = "IG"
+                        elif service in ["TWITTER", "X", "TW"]:
+                            service = "TW"
+                        else:
+                            # বাকি যত প্লাটফর্ম আছে সবগুলা শর্ট প্রমোট করে দাও
+                            service = service[:2] if len(service) >= 2 else service
                         
                     # অ্যাডমিন প্যানেল থেকে রেট নেওয়া
                     cursor.execute("SELECT value FROM config WHERE key='earning_per_otp'")
@@ -303,7 +307,7 @@ async def poll_for_otp(chat_id: int, phones: list, duration_sec: int = 300):
                     otp = match.group(0) if match else "Found in text"
                     
                     # বক্স ডিজাইন (ডাইনামিক সাইজ - লেখা যতটুকু, বক্স ততটুকু)
-                    content = f"{flag} {country_code}➔{service}➔৳{rate_val}"
+                    content = f"{flag} {country_code}➔{service}➔+৳{rate_val}"
                     
                     border_len = len(content) + 2 
                     top_border = "╔" + "═" * border_len + "╗"
@@ -637,7 +641,7 @@ async def back_to_apps(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("service_"))
 async def service_selected(callback: types.CallbackQuery):
-    if await check_maintenance(callback.from_user.id, callback=callback):
+    if await check_maintenance(callback.fromuser.id, callback=callback):
         return
     service_id = int(callback.data.split("_")[1])
     cursor.execute("SELECT range_val FROM services WHERE id=?", (service_id,))
@@ -758,7 +762,7 @@ async def cancel_all(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.delete()
     await callback.message.answer(
-        "✅ *Main Menu* ✅",
+        "📍*Main Menu*📍",
         reply_markup=main_menu(callback.from_user.id),
         parse_mode="Markdown"
     )
@@ -1215,7 +1219,7 @@ async def view_wd(callback: types.CallbackQuery):
         )
         await callback.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     back = InlineKeyboardBuilder()
-    back.row(types.InlineKeyboardButton(text="◀️ Back to Admin Panel", callback_data="admin_back"))
+    back.row(types.InlineKeyboardButton(text="🔙 Back to Admin Panel", callback_data="admin_back"))
     await callback.message.answer("All pending requests listed above.", reply_markup=back.as_markup())
     await callback.answer()
 
