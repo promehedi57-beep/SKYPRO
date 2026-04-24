@@ -427,9 +427,10 @@ def admin_menu():
     builder.button(text="💰 Set OTP Rate", callback_data="set_earning_rate")
     builder.button(text="⚙️ Set Min Withdraw", callback_data="set_min_withdraw")
     builder.button(text="📋 Withdraw Requests", callback_data="view_withdraw_requests")
-    # Total Users বাদ দিয়ে Add Balance যোগ করা হলো
+    # Total Users বাদ দিয়ে Add Balance যোগ করা হলো (আবার Total Users যোগ করা হলো আপনার নির্দেশ অনুযায়ী)
     builder.button(text="💳 Add Balance", callback_data="add_balance_btn")
     builder.button(text="🏆 Top 10 Users", callback_data="top_10_users")
+    builder.button(text="👥 Total Users", callback_data="total_users")
     
     current_w = "ON" if is_withdraw_enabled() else "OFF"
     builder.button(text=f"💸 𝑾𝑰𝑻𝑯𝑫𝑹𝑨𝑾 [{current_w}]", callback_data="toggle_withdraw")
@@ -438,7 +439,7 @@ def admin_menu():
     builder.button(text=f"🔧 Maintenance Mode [{current_m}]", callback_data="toggle_maintenance")
     builder.button(text="🔙 Close", callback_data="close_admin_panel")
     
-    builder.adjust(2, 2, 2, 2, 2, 2, 2)
+    builder.adjust(2)
     return builder.as_markup()
 
 def admin_management_menu():
@@ -561,11 +562,12 @@ async def send_numbers_message(callback_or_msg, range_val: str, limit: int = 2):
     cursor.execute("SELECT name, flag, country_code FROM services WHERE range_val=?", (range_val,))
     row = cursor.fetchone()
     
+    # FIX: Create a temporary bot message for replying safely without trying to edit user's message
     if isinstance(callback_or_msg, types.CallbackQuery):
         await callback_or_msg.answer(f"⏳ Fetching number...")
         target_message = callback_or_msg.message
     else:
-        target_message = callback_or_msg
+        target_message = await callback_or_msg.answer("⏳ Fetching number...")
     
     numbers = await fetch_numbers_by_range(range_val, limit=limit)
     if not numbers:
@@ -612,8 +614,16 @@ async def send_numbers_message(callback_or_msg, range_val: str, limit: int = 2):
         types.InlineKeyboardButton(text="🔙 𝑴𝑬𝑵𝑼", callback_data="main_menu")
     )
     
-    await target_message.delete()
-    sent = await target_message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    # FIX: Use safe delete to avoid permission crash
+    try:
+        await target_message.delete()
+    except Exception:
+        pass
+        
+    if isinstance(callback_or_msg, types.CallbackQuery):
+        sent = await callback_or_msg.message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    else:
+        sent = await callback_or_msg.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     
     phones_list = [p[1] for p in numbers]
     asyncio.create_task(poll_for_otp(sent.chat.id, phones_list, duration_sec=300))
@@ -839,6 +849,24 @@ async def show_top_10_users(callback: types.CallbackQuery):
     builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
     
     await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    await callback.answer()
+
+# --- ADDED: TOTAL USERS IMPLEMENTATION ---
+@dp.callback_query(F.data == "total_users")
+async def show_total_users(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    cursor.execute("SELECT COUNT(id) FROM users")
+    count = cursor.fetchone()[0]
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="🔙 Back", callback_data="admin_back"))
+    
+    await callback.message.edit_text(
+        f"👥 *Total Registered Users:* `{count}`", 
+        reply_markup=builder.as_markup(), 
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 @dp.callback_query(F.data == "manage_services")
